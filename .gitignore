@@ -1,0 +1,7 @@
+.spyproject/
+__pycache__/
+jieba/
+
+news/
+news.db
+wordcloud.png
