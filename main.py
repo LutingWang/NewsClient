@@ -9,5 +9,5 @@ import spyder
 import app
 
 db.Base.metadata.create_all(db._engine)
-spyder.run()
+spyder.control()
 app.App().mainloop()
