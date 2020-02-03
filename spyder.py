@@ -4,7 +4,7 @@ Created on Wed Jan 29 15:03:42 2020
 
 @author: ThinkPad
 """
-from gevent import monkey; monkey.patch_all()
+from gevent import monkey; monkey.patch_all(thread=False)
 
 from datetime import datetime
 import urllib
@@ -66,13 +66,12 @@ class URL:
 def produce(soups, base_url, n_product):
     queue = [URL(base_url)]
     visited = Filter(initial_capacity=news_num)
+    visited.add(base_url)
     for _ in range(n_product):
         while True:
             url = queue.pop(0)
             soup = url.fetch()
-            if soup is not None:
-                visited.add(url.url)
-                break
+            if soup is not None: break
             if url.is_alive(): 
                 queue.append(url)
         soups.put(soup)
@@ -86,6 +85,7 @@ def produce(soups, base_url, n_product):
             netloc = urllib.parse.urlparse(href).netloc
             if netloc.endswith('news.sina.com.cn'):
                 queue.append(URL(href))
+                visited.add(href)
     soups.put(None)
     
 
