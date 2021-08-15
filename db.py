@@ -22,10 +22,10 @@ class News(Base):
     published_time = Column(DateTime, nullable=False)
     author = Column(String)
     
-    __mapper_args__ = {
-        'order_by': published_time.desc()
-        }
-    
+    # __mapper_args__ = {
+    #     'order_by': published_time.desc()
+    #     }
+
     def __repr__(self):
         return f"<News({self._id}, {self.title})>"
 

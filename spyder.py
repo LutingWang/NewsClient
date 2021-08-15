@@ -7,7 +7,8 @@ Created on Wed Jan 29 15:03:42 2020
 from gevent import monkey; monkey.patch_all(thread=False)
 
 from datetime import datetime
-import urllib
+import urllib.error
+import urllib.request
 import hashlib
 
 import chardet
@@ -16,8 +17,6 @@ from pybloom import ScalableBloomFilter as Filter
 import gevent
 
 import db
-
-news_num = 1000
 
 
 class URL:
@@ -36,7 +35,7 @@ class URL:
         else:
             raise RuntimeError("URL is no longer alive")
         
-        print(f"Fetching url '{self.url}'")
+        print(self.url)
         try:
             resp = urllib.request.urlopen(self.url, timeout=5)
         except urllib.error.HTTPError as e:
@@ -55,93 +54,109 @@ class URL:
         try:
             content = resp.read()
             charset = chardet.detect(content)['encoding']
-            soup = BeautifulSoup(content.decode(charset), 'lxml')
+            soup = BeautifulSoup(content.decode(charset), 'html.parser')
             print("Fetching succeeded")
             return soup
-        except:
-            print("Unable to predict charset")
+        except Exception as e:
+            print("Unable to predict charset", e)
             return
     
 
-def produce(soups, base_url, n_product):
-    queue = [URL(base_url)]
-    visited = Filter(initial_capacity=news_num)
-    visited.add(base_url)
-    for _ in range(n_product):
-        while True:
-            url = queue.pop(0)
-            soup = url.fetch()
-            if soup is not None: break
-            if url.is_alive(): 
-                queue.append(url)
-        soups.put(soup)
-        hrefs = [
-            anchor.attrs['href'] 
-            for anchor in soup.select('a[href]')
-            ]
-        for href in hrefs:
-            if href in visited:
-                continue
-            netloc = urllib.parse.urlparse(href).netloc
-            if netloc.endswith('news.sina.com.cn'):
-                queue.append(URL(href))
-                visited.add(href)
-    soups.put(None)
+class Controller:
     
-
-def consume(soups):
-    
-    def meta(soup, property_name):
+    @staticmethod
+    def _meta(soup, property_name):
         tag = soup.find('meta', attrs={'property': property_name})
         if tag is None: return None
         return tag.get('content')
+
+    def __init__(self, base_url='https://news.sina.com.cn', n_news=100, n_producers=5, n_consumers=1):
+        self.base_url = base_url
+        self.n_news = n_news
+        self.n_producers = n_producers
+        self.n_consumers = n_consumers
+
+        self.urls = gevent.queue.Queue()
+        self.soups = gevent.queue.Queue(maxsize=n_producers)
+        self.urls.put(URL(base_url))
+
+        self.visited_urls = Filter(initial_capacity=n_news)
+        self.news_filter = Filter(initial_capacity=n_news)
+
+    def produce(self, id_, n_product):
+        print(f"{id_}: init")
+        for i in range(n_product):
+            while True:
+                url = self.urls.get()
+                soup = url.fetch()
+                if soup is not None: break
+                if url.is_alive(): 
+                    self.urls.put(url)
+            self.soups.put(soup)
+            hrefs = [
+                anchor.attrs['href'] 
+                for anchor in soup.select('a[href]')
+                ]
+            for href in hrefs:
+                if href in self.visited_urls:
+                    continue
+                netloc = urllib.parse.urlparse(href).netloc
+                if netloc.endswith('news.sina.com.cn'):
+                    self.urls.put(URL(href))
+                    self.visited_urls.add(href)
+            print(f"{id_}: {i}/{n_product}")
+        print(f"{id_}: finished")
+        self.soups.put(None)
     
-    filter = Filter(initial_capacity=news_num)
-    while True:
-        soup = soups.get()
-        if soup is None: return
+    def consume(self, id_):
+        print(f"{id_}: init")
+        remaining_producers = self.n_producers
+        while True:
+            soup = self.soups.get()
+            while soup is None: 
+                remaining_producers -= 1
+                if remaining_producers == 0:
+                    print(f"{id_}: finished")
+                    return
+                soup = self.soups.get()
+
+            print(f"{id_}: consuming")
+            if self._meta(soup, 'og:type') != 'news': continue
         
-        print("Consuming soup")
-        if meta(soup, 'og:type') != 'news': continue
+            title = self._meta(soup, 'og:title')
+            md5 = hashlib.md5(title.encode('utf-8')).hexdigest()
+            if md5 in self.news_filter: continue
+            self.news_filter.add(md5)
+        
+            published_time = self._meta(soup, 'article:published_time')
+            author = self._meta(soup, 'article:author')
+            news = db.News(
+                title=title, 
+                published_time=datetime.strptime(
+                    published_time[:-6], 
+                    '%Y-%m-%dT%H:%M:%S',
+                    ), 
+                author=author,
+                )
+            db.session.add(news)
+            db.session.commit()
+        
+            article = soup.select('div#article')[0]
+            content = '\r\n'.join([p.get_text() for p in article.find_all('p')])
+            with open(f'./news/{news._id}.txt', 'w', encoding='utf-8') as f:
+                f.write(content)
     
-        title = meta(soup, 'og:title')
-        md5 = hashlib.md5(title.encode('utf-8')).hexdigest()
-        if md5 in filter: continue
-        filter.add(md5)
+    def run(self):
+        n_product = self.n_news // self.n_producers
+        rem = self.n_news % self.n_producers
+        producers = [gevent.spawn(
+            self.produce,
+            id_=i,
+            n_product=n_product + 1 if i < rem else n_product,
+            ) for i in range(self.n_producers)]
+        consumers = [gevent.spawn(self.consume, id_=i) for i in range(self.n_consumers)]
+        gevent.joinall(producers + consumers)
     
-        published_time = meta(soup, 'article:published_time')
-        author = meta(soup, 'article:author')
-        news = db.News(
-            title=title, 
-            published_time=datetime.strptime(
-                published_time[:-6], 
-                '%Y-%m-%dT%H:%M:%S',
-                ), 
-            author=author,
-            )
-        db.session.add(news)
-        db.session.commit()
-    
-        article = soup.select('div#article')[0]
-        content = '\r\n'.join([p.get_text() for p in article.find_all('p')])
-        with open(f'./news/{news._id}.txt', 'w', encoding='utf-8') as f:
-            f.write(content)
-
-
-def control(n=news_num):
-    soups = gevent.queue.Queue(maxsize=5)
-    producer = gevent.spawn(
-        produce,
-        soups=soups, 
-        base_url='https://news.sina.com.cn', 
-        n_product=n,
-        )
-    consumer = gevent.spawn(
-        consume,
-        soups=soups,
-        )
-    gevent.joinall([producer, consumer])
-
 
 if __name__ == '__main__':
-    control(100)
+    Controller(n_news=20).run()

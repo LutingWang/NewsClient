@@ -8,6 +8,8 @@ import db
 import spyder
 import app
 
-db.Base.metadata.create_all(db._engine)
-spyder.control()
-app.App().mainloop()
+
+if __name__ == '__main__':
+    db.Base.metadata.create_all(db._engine)
+    spyder.Controller().run()
+    app.App().mainloop()

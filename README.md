@@ -15,4 +15,7 @@ python main.py
 - jieba
 - wordcloud
 - sqlalchemy
+- gevent
+- chardet
+- bitarray >= 0.3.4, https://www.lfd.uci.edu/~gohlke/pythonlibs/#bitarray
 
