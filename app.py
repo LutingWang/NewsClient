@@ -277,7 +277,7 @@ class DetailPage(Page):
         super().__init__(master)
         self._title = news.title
         NewsSummary(self, news).pack(pady=40, anchor='s')
-        content = tk.scrolledtext.ScrolledText(
+        content = tkinter.scrolledtext.ScrolledText(
             master=self,
             font='宋体 14',
             relief='flat',

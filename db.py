@@ -6,12 +6,13 @@ Created on Sun Jan 26 19:01:18 2020
 @author: lutingwang
 """
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import Column, Integer, String, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import Column, Integer, String, DateTime
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.decl_api import DeclarativeMeta
+from sqlalchemy.orm.session import Session
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 
 
 class News(Base):
@@ -31,8 +32,8 @@ class News(Base):
 
 
 __pwd = os.getcwd()
-_engine = create_engine(f'sqlite:///{__pwd}/news.db')
-session = sessionmaker(bind=_engine)()
+_engine = create_engine(f'sqlite:///{__pwd}/news.db', echo=True)
+session: Session = sessionmaker(bind=_engine)()
 
 if __name__ == '__main__':
     Base.metadata.create_all(_engine)

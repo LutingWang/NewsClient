@@ -7,29 +7,31 @@ Created on Wed Jan 29 15:03:42 2020
 from gevent import monkey; monkey.patch_all(thread=False)
 
 from datetime import datetime
+import hashlib
+from typing import Optional
 import urllib.error
 import urllib.request
-import hashlib
 
-import chardet
 from bs4 import BeautifulSoup
-from pybloom import ScalableBloomFilter as Filter
+import chardet
 import gevent
+import gevent.queue
+from pybloom import ScalableBloomFilter as Filter
 
 import db
 
 
 class URL:
     
-    def __init__(self, url, expire=3):
+    def __init__(self, url: str, expire: int = 3):
         self.url = url
         self.__expire = expire
         assert(self.is_alive)
         
-    def is_alive(self):
+    def is_alive(self) -> bool:
         return self.__expire > 0
     
-    def fetch(self):
+    def fetch(self) -> Optional[BeautifulSoup]:
         if self.is_alive():
             self.__expire -= 1
         else:
@@ -55,22 +57,22 @@ class URL:
             content = resp.read()
             charset = chardet.detect(content)['encoding']
             soup = BeautifulSoup(content.decode(charset), 'html.parser')
-            print("Fetching succeeded")
+            print("fetching succeeded")
             return soup
         except Exception as e:
-            print("Unable to predict charset", e)
+            print(e)
             return
     
 
 class Controller:
     
     @staticmethod
-    def _meta(soup, property_name):
+    def _meta(soup: BeautifulSoup, property_name: str) -> Optional[str]:
         tag = soup.find('meta', attrs={'property': property_name})
         if tag is None: return None
         return tag.get('content')
 
-    def __init__(self, base_url='https://news.sina.com.cn', n_news=100, n_producers=5, n_consumers=1):
+    def __init__(self, base_url: str = 'https://news.sina.com.cn', n_news: int = 100, n_producers: int = 5, n_consumers: int = 1):
         self.base_url = base_url
         self.n_news = n_news
         self.n_producers = n_producers
@@ -83,7 +85,7 @@ class Controller:
         self.visited_urls = Filter(initial_capacity=n_news)
         self.news_filter = Filter(initial_capacity=n_news)
 
-    def produce(self, id_, n_product):
+    def produce(self, id_: int, n_product: int):
         print(f"{id_}: init")
         for i in range(n_product):
             while True:
@@ -108,7 +110,7 @@ class Controller:
         print(f"{id_}: finished")
         self.soups.put(None)
     
-    def consume(self, id_):
+    def consume(self, id_: int):
         print(f"{id_}: init")
         remaining_producers = self.n_producers
         while True:
@@ -119,6 +121,7 @@ class Controller:
                     print(f"{id_}: finished")
                     return
                 soup = self.soups.get()
+            # import ipdb; ipdb.set_trace()
 
             print(f"{id_}: consuming")
             if self._meta(soup, 'og:type') != 'news': continue
